@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hami Elite Timer - 2x2 & 3x3 Fixed</title>
+    <style>
+        :root {
+            --bg: #0f172a; --surface: #1e293b; --accent: #38bdf8;
+            --text: #f8fafc; --danger: #ef4444; --success: #22c55e; --gold: #fbbf24;
+        }
+        body {
+            font-family: system-ui, sans-serif; background-color: var(--bg); color: var(--text);
+            margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 10px; direction: ltr !important;
+        }
+        .top-bar { display: flex; gap: 15px; background: var(--surface); padding: 10px 20px; border-radius: 12px; margin-bottom: 15px; width: 95%; max-width: 1100px; align-items: center; }
+        select { background: var(--bg); color: white; border: 1px solid var(--accent); padding: 5px; border-radius: 5px; }
+        
+        #scramble-wrapper { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; width: 100%; justify-content: center; }
+        .scramble-btn { background: none; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 35px; height: 35px; cursor: pointer; }
+        #scramble-text { font-size: 1.6rem; font-weight: 800; color: var(--accent); text-align: center; max-width: 800px; min-height: 4rem; }
+
+        #visualizer-container { display: grid; grid-template-areas: ". u . ." "l f r b" ". d . ."; gap: 10px; margin-bottom: 20px; justify-content: center; }
+        .face { display: grid; grid-template-columns: repeat(var(--size, 3), 1fr); gap: 2px; background: #000; padding: 2px; border: 1px solid #444; }
+        .sticker { width: 22px; height: 22px; border-radius: 2px; }
+
+        #timer { font-size: 110px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 15px 0; transition: color 0.1s; }
+        .ready { color: var(--success) !important; } .hold { color: var(--danger) !important; } .inspecting { color: var(--gold) !important; }
+
+        .dashboard { width: 95%; max-width: 1100px; display: grid; grid-template-columns: 2.5fr 1fr; gap: 15px; }
+        .panel { background: var(--surface); border-radius: 12px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .scroll-panel { max-height: 500px; overflow-y: auto; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+        .stat-card { background: #0f172a; padding: 10px; border-radius: 8px; text-align: center; }
+        .stat-label { font-size: 0.75rem; color: #94a3b8; }
+        .stat-value { font-size: 1.1rem; font-weight: bold; color: var(--accent); }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { font-size: 0.8rem; color: #94a3b8; border-bottom: 2px solid #334155; padding: 10px; text-align: left; }
+        td { padding: 10px; border-bottom: 1px solid #334155; font-size: 0.85rem; }
+        .is-pb { color: var(--gold); font-weight: bold; }
+
+        .btn { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-opt { background: #475569; color: white; font-size: 0.75rem; margin-right: 3px; }
+        .btn-opt.active { background: var(--accent); }
+        .btn-del { background: #7f1d1d; color: white; font-size: 0.75rem; }
+        .rolling-avg { font-size: 0.75rem; color: #94a3b8; }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <strong>Event:</strong>
+        <select id="event-select" onchange="changeEvent()">
+            <option value="333">3x3x3</option>
+            <option value="222">2x2x2</option>
+        </select>
+        <strong>Session:</strong>
+        <select id="session-select" onchange="changeSession()"></select>
+        <button class="btn" style="background:var(--accent); color:var(--bg);" onclick="newSession()">+ New Session</button>
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+            <span>Inspection</span>
+            <input type="checkbox" id="inspection-toggle" checked>
+        </div>
+    </div>
+
+    <div id="scramble-wrapper">
+        <button class="scramble-btn" onclick="prevScramble()" id="prev-btn">◀</button>
+        <div id="scramble-text">Generating...</div>
+        <button class="scramble-btn" onclick="nextScramble()">▶</button>
+    </div>
+
+    <div id="visualizer-container">
+        <div id="face-u" class="face" style="grid-area: u;"></div>
+        <div id="face-l" class="face" style="grid-area: l;"></div>
+        <div id="face-f" class="face" style="grid-area: f;"></div>
+        <div id="face-r" class="face" style="grid-area: r;"></div>
+        <div id="face-d" class="face" style="grid-area: d;"></div>
+        <div id="face-b" class="face" style="grid-area: b;"></div>
+    </div>
+
+    <div id="timer">0.00</div>
+
+    <div class="dashboard">
+        <div class="panel scroll-panel">
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-label">PB</div><div id="stat-pb" class="stat-value" style="color:var(--gold)">--</div></div>
+                <div class="stat-card"><div class="stat-label">Session Mean</div><div id="stat-mean" class="stat-value">--</div></div>
+                <div class="stat-card"><div class="stat-label">Ao5</div><div id="stat-ao5" class="stat-value">--</div></div>
+                <div class="stat-card"><div class="stat-label">Ao12</div><div id="stat-ao12" class="stat-value">--</div></div>
+                <div class="stat-card"><div class="stat-label">Ao50</div><div id="stat-ao50" class="stat-value">--</div></div>
+                <div class="stat-card"><div class="stat-label">Count</div><div id="stat-count" class="stat-value">0</div></div>
+            </div>
+            <table>
+                <thead><tr><th>#</th><th>Time</th><th>Ao5 / Ao12</th><th>Action</th></tr></thead>
+                <tbody id="times-body"></tbody>
+            </table>
+        </div>
+        <div class="panel">
+            <button class="btn" onclick="exportData()" style="width:100%; background:var(--success); color:white;">Export CSV</button>
+        </div>
+    </div>
+
+    <script>
+        const COLORS = { U: '#ffffff', D: '#ffff00', L: '#ff8800', R: '#ee0000', F: '#00cc00', B: '#0000ff' };
+        let currentEvent = '333', currentSessionId = 'default', sessions = {}, solveTimes = [];
+        let cube = {}, running = false, ready = false, holdTimeout, startTime, interval, justStopped = false;
+        let inspecting = false, inspectionInterval, inspectionTime = 15, scrambleHistory = [], historyIdx = -1;
+
+        // --- CUBE LOGIC ---
+        function resetCubeState() {
+            const size = (currentEvent === '222') ? 2 : 3;
+            ['U','D','L','R','F','B'].forEach(f => cube[f] = Array(size * size).fill(COLORS[f]));
+        }
+
+        function rotateFace(f) {
+            const size = (currentEvent === '222') ? 2 : 3;
+            const p = [...cube[f]];
+            if (size === 3) cube[f] = [p[6], p[3], p[0], p[7], p[4], p[1], p[8], p[5], p[2]];
+            else cube[f] = [p[2], p[0], p[3], p[1]];
+        }
+
+        function move(m) {
+            const size = (currentEvent === '222') ? 2 : 3;
+            const side = m[0], count = m.includes('2')?2:m.includes("'")?3:1;
+            for(let i=0; i<count; i++) {
+                rotateFace(side);
+                let t;
+                if (size === 3) {
+                    if (side === 'U') {
+                        t = [cube.F[0], cube.F[1], cube.F[2]];
+                        [cube.F[0], cube.F[1], cube.F[2]] = [cube.R[0], cube.R[1], cube.R[2]];
+                        [cube.R[0], cube.R[1], cube.R[2]] = [cube.B[0], cube.B[1], cube.B[2]];
+                        [cube.B[0], cube.B[1], cube.B[2]] = [cube.L[0], cube.L[1], cube.L[2]];
+                        [cube.L[0], cube.L[1], cube.L[2]] = t;
+                    } else if (side === 'D') {
+                        t = [cube.F[6], cube.F[7], cube.F[8]];
+                        [cube.F[6], cube.F[7], cube.F[8]] = [cube.L[6], cube.L[7], cube.L[8]];
+                        [cube.L[6], cube.L[7], cube.L[8]] = [cube.B[6], cube.B[7], cube.B[8]];
+                        [cube.B[6], cube.B[7], cube.B[8]] = [cube.R[6], cube.R[7], cube.R[8]];
+                        [cube.R[6], cube.R[7], cube.R[8]] = t;
+                    } else if (side === 'L') {
+                        t = [cube.F[0], cube.F[3], cube.F[6]];
+                        [cube.F[0], cube.F[3], cube.F[6]] = [cube.U[0], cube.U[3], cube.U[6]];
+                        [cube.U[0], cube.U[3], cube.U[6]] = [cube.B[8], cube.B[5], cube.B[2]];
+                        [cube.B[8], cube.B[5], cube.B[2]] = [cube.D[0], cube.D[3], cube.D[6]];
+                        [cube.D[0], cube.D[3], cube.D[6]] = t;
+                    } else if (side === 'R') {
+                        t = [cube.F[2], cube.F[5], cube.F[8]];
+                        [cube.F[2], cube.F[5], cube.F[8]] = [cube.D[2], cube.D[5], cube.D[8]];
+                        [cube.D[2], cube.D[5], cube.D[8]] = [cube.B[6], cube.B[3], cube.B[0]];
+                        [cube.B[6], cube.B[3], cube.B[0]] = [cube.U[2], cube.U[5], cube.U[8]];
+                        [cube.U[2], cube.U[5], cube.U[8]] = t;
+                    } else if (side === 'F') {
+                        t = [cube.U[6], cube.U[7], cube.U[8]];
+                        [cube.U[6], cube.U[7], cube.U[8]] = [cube.L[8], cube.L[5], cube.L[2]];
+                        [cube.L[8], cube.L[5], cube.L[2]] = [cube.D[2], cube.D[1], cube.D[0]];
+                        [cube.D[2], cube.D[1], cube.D[0]] = [cube.R[0], cube.R[3], cube.R[6]];
+                        [cube.R[0], cube.R[3], cube.R[6]] = t;
+                    } else if (side === 'B') {
+                        t = [cube.U[0], cube.U[1], cube.U[2]];
+                        [cube.U[0], cube.U[1], cube.U[2]] = [cube.R[2], cube.R[5], cube.R[8]];
+                        [cube.R[2], cube.R[5], cube.R[8]] = [cube.D[8], cube.D[7], cube.D[6]];
+                        [cube.D[8], cube.D[7], cube.D[6]] = [cube.L[6], cube.L[3], cube.L[0]];
+                        [cube.L[6], cube.L[3], cube.L[0]] = t;
+                    }
+                } else { // 2x2 logic
+                    if (side === 'U') {
+                        t = [cube.F[0], cube.F[1]];
+                        [cube.F[0], cube.F[1]] = [cube.R[0], cube.R[1]];
+                        [cube.R[0], cube.R[1]] = [cube.B[0], cube.B[1]];
+                        [cube.B[0], cube.B[1]] = [cube.L[0], cube.L[1]];
+                        [cube.L[0], cube.L[1]] = t;
+                    } else if (side === 'D') {
+                        t = [cube.F[2], cube.F[3]];
+                        [cube.F[2], cube.F[3]] = [cube.L[2], cube.L[3]];
+                        [cube.L[2], cube.L[3]] = [cube.B[2], cube.B[3]];
+                        [cube.B[2], cube.B[3]] = [cube.R[2], cube.R[3]];
+                        [cube.R[2], cube.R[3]] = t;
+                    } else if (side === 'L') {
+                        t = [cube.F[0], cube.F[2]];
+                        [cube.F[0], cube.F[2]] = [cube.U[0], cube.U[2]];
+                        [cube.U[0], cube.U[2]] = [cube.B[3], cube.B[1]];
+                        [cube.B[3], cube.B[1]] = [cube.D[0], cube.D[2]];
+                        [cube.D[0], cube.D[2]] = t;
+                    } else if (side === 'R') {
+                        t = [cube.F[1], cube.F[3]];
+                        [cube.F[1], cube.F[3]] = [cube.D[1], cube.D[3]];
+                        [cube.D[1], cube.D[3]] = [cube.B[2], cube.B[0]];
+                        [cube.B[2], cube.B[0]] = [cube.U[1], cube.U[3]];
+                        [cube.U[1], cube.U[3]] = t;
+                    } else if (side === 'F') {
+                        t = [cube.U[2], cube.U[3]];
+                        [cube.U[2], cube.U[3]] = [cube.L[3], cube.L[1]];
+                        [cube.L[3], cube.L[1]] = [cube.D[1], cube.D[0]];
+                        [cube.D[1], cube.D[0]] = [cube.R[0], cube.R[2]];
+                        [cube.R[0], cube.R[2]] = t;
+                    } else if (side === 'B') {
+                        t = [cube.U[0], cube.U[1]];
+                        [cube.U[0], cube.U[1]] = [cube.R[1], cube.R[3]];
+                        [cube.R[1], cube.R[3]] = [cube.D[3], cube.D[2]];
+                        [cube.D[3], cube.D[2]] = [cube.L[2], cube.L[0]];
+                        [cube.L[2], cube.L[0]] = t;
+                    }
+                }
+            }
+        }
+
+        function drawCube() {
+            const size = (currentEvent === '222') ? 2 : 3;
+            document.documentElement.style.setProperty('--size', size);
+            ['U','D','L','R','F','B'].forEach(f => {
+                const el = document.getElementById(`face-${f.toLowerCase()}`);
+                el.innerHTML = '';
+                cube[f].forEach(c => {
+                    const s = document.createElement('div');
+                    s.className = 'sticker';
+                    s.style.backgroundColor = c;
+                    el.appendChild(s);
+                });
+            });
+        }
+
+        // --- SESSION ---
+        function initStorage() {
+            const data = JSON.parse(localStorage.getItem('hami_cube_final_v60')) || { sessions: { 'default': { name: 'Session 1', event: '333', times: [] } }, activeSession: 'default' };
+            sessions = data.sessions; currentSessionId = data.activeSession;
+            renderSessionSelect(); loadSession();
+        }
+        function saveToStorage() { localStorage.setItem('hami_cube_final_v60', JSON.stringify({ sessions, activeSession: currentSessionId })); }
+        function renderSessionSelect() {
+            const sel = document.getElementById('session-select'); sel.innerHTML = '';
+            Object.keys(sessions).forEach(id => { const opt = document.createElement('option'); opt.value = id; opt.innerText = sessions[id].name; sel.appendChild(opt); });
+            sel.value = currentSessionId;
+        }
+        function newSession() { 
+            const name = prompt("Session Name:"); if(!name) return;
+            const id = 's' + Date.now(); sessions[id] = { name, event: currentEvent, times: [] };
+            currentSessionId = id; renderSessionSelect(); loadSession();
+        }
+        function changeSession() { currentSessionId = document.getElementById('session-select').value; loadSession(); }
+        function changeEvent() { currentEvent = document.getElementById('event-select').value; generateScramble(); }
+        function loadSession() { 
+            const sess = sessions[currentSessionId]; currentEvent = sess.event; document.getElementById('event-select').value = currentEvent;
+            solveTimes = sess.times; updateUI(); generateScramble();
+        }
+
+        // --- SCRAMBLE ---
+        function generateScramble() {
+            const faces = ['U','D','L','R','F','B'], mods = ['', "'", '2'], opposites = { 'U':'D','D':'U','L':'R','R':'L','F':'B','B':'F' };
+            let s = [], last = '', secLast = '', len = (currentEvent === '222') ? 9 : 20;
+            while(s.length < len) {
+                let f = faces[Math.floor(Math.random()*6)];
+                if(f !== last && !(f === secLast && f === opposites[last])) { s.push(f + mods[Math.floor(Math.random()*3)]); secLast = last; last = f; }
+            }
+            const scr = s.join(' '); scrambleHistory.push(scr); historyIdx = scrambleHistory.length - 1;
+            applyScramble(scr);
+        }
+        function applyScramble(scr) {
+            document.getElementById('scramble-text').innerText = scr;
+            document.getElementById('prev-btn').disabled = (historyIdx <= 0);
+            resetCubeState();
+            scr.split(' ').forEach(m => move(m));
+            drawCube();
+        }
+        function prevScramble() { if(historyIdx > 0) { historyIdx--; applyScramble(scrambleHistory[historyIdx]); } }
+        function nextScramble() { if(historyIdx < scrambleHistory.length - 1) { historyIdx++; applyScramble(scrambleHistory[historyIdx]); } else { generateScramble(); } }
+
+        // --- UI & STATS ---
+        function getT(s) { return s.p === 'DNF' ? Infinity : (s.p === '+2' ? s.time + 2 : s.time); }
+        function calcRollingAvg(arr, n) {
+            if(arr.length < n) return "--";
+            let lastN = arr.slice(0, n).map(getT).sort((a,b)=>a-b);
+            lastN.shift(); lastN.pop();
+            return lastN.includes(Infinity) ? "DNF" : (lastN.reduce((a,b)=>a+b,0)/(n-2)).toFixed(2);
+        }
+        function updateUI() {
+            const body = document.getElementById('times-body'); body.innerHTML = '';
+            const valid = solveTimes.filter(s => s.p !== 'DNF').map(getT);
+            const pb = valid.length ? Math.min(...valid) : Infinity;
+            solveTimes.forEach((ts, i) => {
+                const subSet = solveTimes.slice(i);
+                const actual = getT(ts);
+                body.innerHTML += `<tr class="${actual === pb && actual !== Infinity ? 'is-pb' : ''}">
+                    <td>${solveTimes.length - i}</td>
+                    <td><strong>${ts.p === 'DNF' ? 'DNF' : actual.toFixed(2)}</strong></td>
+                    <td class="rolling-avg">${calcRollingAvg(subSet, 5)} / ${calcRollingAvg(subSet, 12)}</td>
+                    <td>
+                        <button class="btn btn-opt ${ts.p==='+2'?'active':''}" onclick="penalty(${i},'+2')">+2</button>
+                        <button class="btn btn-opt ${ts.p==='DNF'?'active':''}" onclick="penalty(${i},'DNF')">DNF</button>
+                        <button class="btn btn-del" onclick="del(${i})">X</button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById('stat-pb').innerText = pb === Infinity ? "--" : pb.toFixed(2);
+            document.getElementById('stat-count').innerText = solveTimes.length;
+            document.getElementById('stat-ao5').innerText = calcRollingAvg(solveTimes, 5);
+            document.getElementById('stat-ao12').innerText = calcRollingAvg(solveTimes, 12);
+            document.getElementById('stat-ao50').innerText = calcRollingAvg(solveTimes, 50);
+            document.getElementById('stat-mean').innerText = valid.length ? (valid.reduce((a,b)=>a+b,0)/valid.length).toFixed(2) : "--";
+            saveToStorage();
+        }
+        function penalty(i, type) { solveTimes[i].p = (solveTimes[i].p === type ? '' : type); updateUI(); }
+        function del(i) { if(confirm("Delete solve?")) { solveTimes.splice(i, 1); updateUI(); } }
+        function exportData() {
+            let csv = "Time,Scramble,Penalty\n";
+            solveTimes.forEach(s => csv += `${s.time},${s.scramble},${s.p}\n`);
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const a = document.createElement('a'); a.href = window.URL.createObjectURL(blob); a.download = 'session.csv'; a.click();
+        }
+
+        // --- TIMER ---
+        window.onkeydown = (e) => {
+            if(e.code !== 'Space') return; e.preventDefault();
+            if (running) {
+                clearInterval(interval); running = false;
+                let final = (Date.now() - startTime) / 1000;
+                document.getElementById('timer').innerText = final.toFixed(2);
+                document.getElementById('timer').className = '';
+                solveTimes.unshift({time: final, scramble: scrambleHistory[historyIdx], p: ''});
+                updateUI(); nextScramble(); justStopped = true; return;
+            }
+            if (justStopped || ready) return;
+            document.getElementById('timer').classList.add('hold');
+            holdTimeout = setTimeout(() => { ready = true; document.getElementById('timer').classList.replace('hold', 'ready'); if(inspecting || !document.getElementById('inspection-toggle').checked) document.getElementById('timer').innerText = "0.00"; }, 300);
+        };
+        window.onkeyup = (e) => {
+            if(e.code !== 'Space') return;
+            if (justStopped) { justStopped = false; return; }
+            if (!ready && !running && !inspecting && document.getElementById('inspection-toggle').checked) {
+                clearTimeout(holdTimeout); inspecting = true; inspectionTime = 15;
+                document.getElementById('timer').innerText = inspectionTime; document.getElementById('timer').classList.add('inspecting');
+                inspectionInterval = setInterval(() => { inspectionTime--; if (inspectionTime <= 0) { document.getElementById('timer').innerText = "DNF"; clearInterval(inspectionInterval); } else document.getElementById('timer').innerText = inspectionTime; }, 1000);
+                return;
+            }
+            if (ready && !running) {
+                clearTimeout(holdTimeout); if(inspecting) { clearInterval(inspectionInterval); inspecting = false; }
+                document.getElementById('timer').classList.remove('ready', 'inspecting', 'hold');
+                startTime = Date.now(); running = true;
+                interval = setInterval(() => { document.getElementById('timer').innerText = ((Date.now()-startTime)/1000).toFixed(2); }, 10);
+            } else { clearTimeout(holdTimeout); document.getElementById('timer').classList.remove('hold'); }
+            ready = false;
+        };
+        initStorage();
+    </script>
+</body>
+</html>
